@@ -20,6 +20,8 @@ import sys
 import signal
 import threading
 import time
+import ctypes
+from ctypes import c_uint32, c_uint64, c_int, c_long, c_void_p, c_char_p, c_bool, byref
 
 try:
     import Quartz
@@ -30,7 +32,7 @@ except ImportError:
 
 PORT = 5050
 DISCOVERY_PORT = 5051          # UDP broadcast discovery fallback
-SERVICE_NAME = "Mouse Server"
+SERVICE_NAME = "Robert's MacBook Pro"
 SERVICE_TYPE = "_mouse._udp"   # no trailing dot — dns-sd adds it
 
 
@@ -78,35 +80,101 @@ def scroll(dx, dy):
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
 
 
-# CGScrollWheel phase constants
-_PHASE_BEGAN   = 1
-_PHASE_CHANGED = 2
-_PHASE_ENDED   = 4
+# ── Space switching via CGSPrivate ───────────────────────────────────────────
+# Uses the same private API as Hammerspoon / yabai — directly tells the window
+# server to activate a specific space by ID, no keyboard shortcuts required.
 
-def _swipe_gesture(dx, dy):
-    """
-    Inject a short trackpad-style scroll burst with began/changed/ended phases.
-    macOS window server interprets fast, large-delta phased scrolls as a
-    space-switch gesture — the same path used by a real trackpad swipe.
-    No keyboard events are involved, so nothing leaks to the focused app.
-    """
-    src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateHIDSystemState)
+_cg = ctypes.CDLL('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics')
+_cf = ctypes.CDLL('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
 
-    def post_phase(phase, x, y):
-        e = Quartz.CGEventCreateScrollWheelEvent(src, Quartz.kCGScrollEventUnitPixel, 2, y, x)
-        Quartz.CGEventSetIntegerValueField(e, Quartz.kCGScrollWheelEventScrollPhase, phase)
-        Quartz.CGEventSetIntegerValueField(e, Quartz.kCGScrollWheelEventIsContinuous, 1)
-        Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
+_cg.CGSMainConnectionID.restype          = c_uint32
+_cg.CGSGetActiveSpace.argtypes           = [c_uint32]
+_cg.CGSGetActiveSpace.restype            = c_uint64
+_cg.CGSCopyManagedDisplaySpaces.argtypes = [c_uint32]
+_cg.CGSCopyManagedDisplaySpaces.restype  = c_void_p
+_cg.CGSManagedDisplaySetCurrentSpace.argtypes = [c_uint32, c_void_p, c_uint64]
+_cg.CGSManagedDisplaySetCurrentSpace.restype  = c_int
 
-    post_phase(_PHASE_BEGAN,   0,  0)
-    post_phase(_PHASE_CHANGED, dx, dy)
-    post_phase(_PHASE_ENDED,   0,  0)
+_cf.CFRelease.argtypes              = [c_void_p]
+_cf.CFArrayGetCount.argtypes        = [c_void_p]
+_cf.CFArrayGetCount.restype         = c_long
+_cf.CFArrayGetValueAtIndex.argtypes = [c_void_p, c_long]
+_cf.CFArrayGetValueAtIndex.restype  = c_void_p
+_cf.CFDictionaryGetValue.argtypes   = [c_void_p, c_void_p]
+_cf.CFDictionaryGetValue.restype    = c_void_p
+_cf.CFNumberGetValue.argtypes       = [c_void_p, c_int, c_void_p]
+_cf.CFNumberGetValue.restype        = c_bool
+_cf.CFStringCreateWithCString.argtypes = [c_void_p, c_char_p, c_uint32]
+_cf.CFStringCreateWithCString.restype  = c_void_p
+
+_kCFStringEncodingUTF8 = 0x08000100
+_kCFNumberSInt64Type   = 4
+
+def _cfstr(s):
+    return _cf.CFStringCreateWithCString(None, s.encode('utf-8'), _kCFStringEncodingUTF8)
+
+# Pre-create dictionary keys once for the process lifetime
+_KEY_SPACES  = _cfstr('Spaces')
+_KEY_ID64    = _cfstr('id64')
+_KEY_DISP_ID = _cfstr('Display Identifier')
 
 
-def swipe_left():  _swipe_gesture(-500,    0)  # switch to left space
-def swipe_right(): _swipe_gesture( 500,    0)  # switch to right space
-def swipe_up():    _swipe_gesture(   0, -500)  # Mission Control
-def swipe_down():  _swipe_gesture(   0,  500)  # App Exposé
+def _cf_num_i64(cf_num):
+    val = c_uint64(0)
+    _cf.CFNumberGetValue(cf_num, _kCFNumberSInt64Type, byref(val))
+    return val.value
+
+
+def _switch_space(direction):
+    """Switch Spaces: direction = -1 (prev/left) or +1 (next/right)."""
+    conn   = _cg.CGSMainConnectionID()
+    active = _cg.CGSGetActiveSpace(conn)
+
+    displays = _cg.CGSCopyManagedDisplaySpaces(conn)
+    if not displays:
+        return
+    try:
+        for i in range(_cf.CFArrayGetCount(displays)):
+            display   = _cf.CFArrayGetValueAtIndex(displays, i)
+            uuid_cf   = _cf.CFDictionaryGetValue(display, _KEY_DISP_ID)
+            spaces_cf = _cf.CFDictionaryGetValue(display, _KEY_SPACES)
+            if not uuid_cf or not spaces_cf:
+                continue
+
+            ids = []
+            for j in range(_cf.CFArrayGetCount(spaces_cf)):
+                sp    = _cf.CFArrayGetValueAtIndex(spaces_cf, j)
+                id_cf = _cf.CFDictionaryGetValue(sp, _KEY_ID64)
+                if id_cf:
+                    ids.append(_cf_num_i64(id_cf))
+
+            if active not in ids:
+                continue
+
+            new_idx = ids.index(active) + direction
+            if 0 <= new_idx < len(ids):
+                _cg.CGSManagedDisplaySetCurrentSpace(conn, uuid_cf, ids[new_idx])
+            break
+    finally:
+        _cf.CFRelease(displays)
+
+
+def swipe_left():  _switch_space(-1)   # switch to previous space
+def swipe_right(): _switch_space(+1)   # switch to next space
+_kVK_UpArrow   = 0x7E
+_kVK_DownArrow = 0x7D
+
+def _post_key(keycode, flags):
+    src  = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateHIDSystemState)
+    down = Quartz.CGEventCreateKeyboardEvent(src, keycode, True)
+    up   = Quartz.CGEventCreateKeyboardEvent(src, keycode, False)
+    Quartz.CGEventSetFlags(down, flags)
+    Quartz.CGEventSetFlags(up,   flags)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
+
+def swipe_up():   _post_key(_kVK_UpArrow,   Quartz.kCGEventFlagMaskControl)  # Mission Control
+def swipe_down(): _post_key(_kVK_DownArrow, Quartz.kCGEventFlagMaskControl)  # App Exposé
 
 
 # ── UDP broadcast discovery fallback ────────────────────────────────────────

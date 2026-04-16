@@ -2,7 +2,7 @@
 import Network
 import Foundation
 
-private let kDiscoveryPort: NWEndpoint.Port = 5051
+private let kDiscoveryPort: UInt16 = 5051
 
 enum DiscoveryState: Equatable {
     case searching
@@ -20,10 +20,13 @@ final class DiscoveryService {
     var onStateChanged: ((DiscoveryState) -> Void)?
 
     private var browser: NWBrowser?
-    private var broadcastListener: NWListener?
     private var bonjourServers: [ServerConfig] = []
     // Keyed by host string so repeated broadcasts from the same server stay stable.
     private var broadcastServers: [String: ServerConfig] = [:]
+
+    // POSIX socket for broadcast reception — avoids NWListener rebind issues on reconnect.
+    private var broadcastFd: Int32 = -1
+    private let broadcastQueue = DispatchQueue(label: "mouse.discovery.broadcast", qos: .utility)
 
     func start() {
         startBonjour()
@@ -33,8 +36,7 @@ final class DiscoveryService {
     func stop() {
         browser?.cancel()
         browser = nil
-        broadcastListener?.cancel()
-        broadcastListener = nil
+        stopBroadcastListener()
         bonjourServers = []
         broadcastServers = [:]
     }
@@ -82,39 +84,77 @@ final class DiscoveryService {
         browser?.start(queue: .main)
     }
 
-    // MARK: - UDP Broadcast fallback
+    // MARK: - UDP Broadcast fallback (POSIX socket)
 
     private func startBroadcastListener() {
-        broadcastListener?.cancel()
-        guard let listener = try? NWListener(using: .udp, on: kDiscoveryPort) else { return }
+        stopBroadcastListener()
 
-        listener.newConnectionHandler = { [weak self] connection in
-            connection.start(queue: .main)
-            self?.receiveAnnouncement(from: connection)
+        let sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        guard sock >= 0 else { return }
+
+        var yes: Int32 = 1
+        setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &yes, socklen_t(MemoryLayout<Int32>.size))
+
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = kDiscoveryPort.bigEndian
+        addr.sin_addr.s_addr = 0  // INADDR_ANY
+
+        let bound = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
         }
-        listener.start(queue: .main)
-        broadcastListener = listener
+        guard bound == 0 else { close(sock); return }
+
+        broadcastFd = sock
+        broadcastQueue.async { [weak self] in
+            self?.receiveLoop(fd: sock)
+        }
     }
 
-    private func receiveAnnouncement(from connection: NWConnection) {
-        connection.receiveMessage { [weak self] data, _, _, _ in
-            guard let self, let data else { return }
-            guard
-                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                json["type"] as? String == "discover",
-                let port = json["port"] as? Int,
-                let name = json["name"] as? String,
-                case .hostPort(let host, _) = connection.endpoint
-            else { return }
+    private func stopBroadcastListener() {
+        let fd = broadcastFd
+        broadcastFd = -1
+        if fd >= 0 { close(fd) }  // unblocks recvfrom on the background thread
+    }
 
-            // Strip IPv6-mapped IPv4 prefix ("::ffff:192.168.1.x" → "192.168.1.x")
-            var hostStr = "\(host)"
-            if hostStr.hasPrefix("::ffff:") { hostStr = String(hostStr.dropFirst(7)) }
+    private func receiveLoop(fd: Int32) {
+        var buf = Data(count: 4096)
+        var src = sockaddr_in()
+        var srcLen = socklen_t(MemoryLayout<sockaddr_in>.size)
 
-            let config = ServerConfig.broadcast(name: name, host: hostStr, port: UInt16(port))
-            self.broadcastServers[hostStr] = config
-            self.notifyChanged()
+        while true {
+            let n = buf.withUnsafeMutableBytes { bufPtr in
+                withUnsafeMutablePointer(to: &src) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        recvfrom(fd, bufPtr.baseAddress, bufPtr.count, 0, $0, &srcLen)
+                    }
+                }
+            }
+            guard n > 0 else { return }
+
+            let packet = Data(buf.prefix(n))
+            let ipStr = String(cString: inet_ntoa(src.sin_addr))
+
+            DispatchQueue.main.async { [weak self] in
+                self?.handleBroadcast(data: packet, ip: ipStr)
+            }
         }
+    }
+
+    private func handleBroadcast(data: Data, ip: String) {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            json["type"] as? String == "discover",
+            let port = json["port"] as? Int,
+            let name = json["name"] as? String
+        else { return }
+
+        let config = ServerConfig.broadcast(name: name, host: ip, port: UInt16(port))
+        broadcastServers[ip] = config
+        notifyChanged()
     }
 
     // MARK: - Merge and notify
