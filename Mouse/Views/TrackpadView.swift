@@ -44,27 +44,18 @@ private struct GestureView: UIViewRepresentable {
         view.backgroundColor = .black
         view.isMultipleTouchEnabled = true
 
-        // 1-finger pan → cursor move
-        let movePan = UIPanGestureRecognizer(
+        // Single pan recognizer handles both 1-finger (move) and 2-finger (scroll).
+        // Using two separate recognizers caused the 1-finger one to grab the first
+        // touch before the second finger could arrive, making 2-finger scroll unreliable.
+        let pan = UIPanGestureRecognizer(
             target: context.coordinator,
-            action: #selector(Coordinator.handleMovePan(_:))
+            action: #selector(Coordinator.handlePan(_:))
         )
-        movePan.minimumNumberOfTouches = 1
-        movePan.maximumNumberOfTouches = 1
-        view.addGestureRecognizer(movePan)
-
-        // 2-finger pan → scroll
-        let scrollPan = UIPanGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.handleScrollPan(_:))
-        )
-        scrollPan.minimumNumberOfTouches = 2
-        scrollPan.maximumNumberOfTouches = 2
-        view.addGestureRecognizer(scrollPan)
+        pan.minimumNumberOfTouches = 1
+        pan.maximumNumberOfTouches = 2
+        view.addGestureRecognizer(pan)
 
         // 1-finger tap → left click
-        // UITapGestureRecognizer only fires when there is no significant movement,
-        // so it naturally does not conflict with the 1-finger pan.
         let leftTap = UITapGestureRecognizer(
             target: context.coordinator,
             action: #selector(Coordinator.handleLeftTap)
@@ -86,7 +77,6 @@ private struct GestureView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        // Keep coordinator callbacks up to date when the view re-renders
         context.coordinator.onMoveDelta = onMoveDelta
         context.coordinator.onScrollDelta = onScrollDelta
         context.coordinator.onLeftClick = onLeftClick
@@ -110,8 +100,8 @@ private struct GestureView: UIViewRepresentable {
         var onLeftClick: () -> Void
         var onRightClick: () -> Void
 
-        private var lastMoveLocation: CGPoint?
-        private var lastScrollLocation: CGPoint?
+        private var lastLocation: CGPoint?
+        private var lastTouchCount: Int = 0
 
         init(
             onMoveDelta: @escaping (Double, Double) -> Void,
@@ -125,35 +115,39 @@ private struct GestureView: UIViewRepresentable {
             self.onRightClick = onRightClick
         }
 
-        @objc func handleMovePan(_ recognizer: UIPanGestureRecognizer) {
+        @objc func handlePan(_ recognizer: UIPanGestureRecognizer) {
             let location = recognizer.location(in: recognizer.view)
-            switch recognizer.state {
-            case .began:
-                lastMoveLocation = location
-            case .changed:
-                if let last = lastMoveLocation {
-                    onMoveDelta(location.x - last.x, location.y - last.y)
-                }
-                lastMoveLocation = location
-            case .ended, .cancelled, .failed:
-                lastMoveLocation = nil
-            default:
-                break
-            }
-        }
+            let count = recognizer.numberOfTouches
 
-        @objc func handleScrollPan(_ recognizer: UIPanGestureRecognizer) {
-            let location = recognizer.location(in: recognizer.view)
             switch recognizer.state {
             case .began:
-                lastScrollLocation = location
+                lastLocation = location
+                lastTouchCount = count
+
             case .changed:
-                if let last = lastScrollLocation {
-                    onScrollDelta(location.x - last.x, location.y - last.y)
+                // If finger count changed mid-gesture, reset to avoid a jump
+                if count != lastTouchCount {
+                    lastLocation = location
+                    lastTouchCount = count
+                    return
                 }
-                lastScrollLocation = location
+                guard let last = lastLocation else {
+                    lastLocation = location
+                    return
+                }
+                let dx = location.x - last.x
+                let dy = location.y - last.y
+                if count == 1 {
+                    onMoveDelta(dx, dy)
+                } else {
+                    onScrollDelta(dx, dy)
+                }
+                lastLocation = location
+
             case .ended, .cancelled, .failed:
-                lastScrollLocation = nil
+                lastLocation = nil
+                lastTouchCount = 0
+
             default:
                 break
             }
