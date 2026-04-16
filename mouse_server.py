@@ -76,25 +76,35 @@ def scroll(dx, dy):
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
 
 
-# Key codes for arrow keys
-_KEY_LEFT  = 0x7B
-_KEY_RIGHT = 0x7C
-_KEY_DOWN  = 0x7D
-_KEY_UP    = 0x7E
+# CGScrollWheel phase constants
+_PHASE_BEGAN   = 1
+_PHASE_CHANGED = 2
+_PHASE_ENDED   = 4
 
-def _ctrl_arrow(key_code):
-    """Post a Control+Arrow keystroke (used for space switching / Mission Control)."""
+def _swipe_gesture(dx, dy):
+    """
+    Inject a short trackpad-style scroll burst with began/changed/ended phases.
+    macOS window server interprets fast, large-delta phased scrolls as a
+    space-switch gesture — the same path used by a real trackpad swipe.
+    No keyboard events are involved, so nothing leaks to the focused app.
+    """
     src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateHIDSystemState)
-    for down in (True, False):
-        e = Quartz.CGEventCreateKeyboardEvent(src, key_code, down)
-        Quartz.CGEventSetFlags(e, Quartz.kCGEventFlagMaskControl)
+
+    def post_phase(phase, x, y):
+        e = Quartz.CGEventCreateScrollWheelEvent(src, Quartz.kCGScrollEventUnitPixel, 2, y, x)
+        Quartz.CGEventSetIntegerValueField(e, Quartz.kCGScrollWheelEventScrollPhase, phase)
+        Quartz.CGEventSetIntegerValueField(e, Quartz.kCGScrollWheelEventIsContinuous, 1)
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
 
+    post_phase(_PHASE_BEGAN,   0,  0)
+    post_phase(_PHASE_CHANGED, dx, dy)
+    post_phase(_PHASE_ENDED,   0,  0)
 
-def swipe_left():  _ctrl_arrow(_KEY_LEFT)   # switch to left space
-def swipe_right(): _ctrl_arrow(_KEY_RIGHT)  # switch to right space
-def swipe_up():    _ctrl_arrow(_KEY_UP)     # Mission Control
-def swipe_down():  _ctrl_arrow(_KEY_DOWN)   # App Exposé
+
+def swipe_left():  _swipe_gesture(-500,    0)  # switch to left space
+def swipe_right(): _swipe_gesture( 500,    0)  # switch to right space
+def swipe_up():    _swipe_gesture(   0, -500)  # Mission Control
+def swipe_down():  _swipe_gesture(   0,  500)  # App Exposé
 
 
 # ── Bonjour advertisement ────────────────────────────────────────────────────
