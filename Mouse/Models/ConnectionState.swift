@@ -1,6 +1,6 @@
 // Mouse/Models/ConnectionState.swift
 
-enum ConnectionState {
+enum ConnectionState: Equatable {
     case discovering
     case connecting
     case connected

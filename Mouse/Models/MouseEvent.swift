@@ -3,6 +3,7 @@ import Foundation
 
 enum MouseEvent: Encodable {
     case move(dx: Double, dy: Double)
+    /// Encodes as "click" (not "leftClick") — matches the existing Mac server wire protocol.
     case leftClick
     case rightClick
     case scroll(dx: Double, dy: Double)
