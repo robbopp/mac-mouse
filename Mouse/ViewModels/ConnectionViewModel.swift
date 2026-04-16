@@ -12,6 +12,7 @@ final class ConnectionViewModel {
     private(set) var connectionState: ConnectionState = .disconnected
     private(set) var discoveredServers: [ServerConfig] = []
     private(set) var connectionError: String?
+    private(set) var discoveryPermissionDenied = false
 
     let networkService = NetworkService()
     private let discoveryService = DiscoveryService()
@@ -19,6 +20,9 @@ final class ConnectionViewModel {
     init() {
         discoveryService.onServersChanged = { [weak self] servers in
             self?.discoveredServers = servers
+        }
+        discoveryService.onStateChanged = { [weak self] state in
+            self?.discoveryPermissionDenied = (state == .permissionDenied)
         }
         attemptAutoReconnect()
     }

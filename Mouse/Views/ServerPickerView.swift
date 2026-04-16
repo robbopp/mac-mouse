@@ -9,6 +9,27 @@ struct ServerPickerView: View {
     var body: some View {
         NavigationStack {
             List {
+                // Permission denied banner
+                if connectionVM.discoveryPermissionDenied {
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Local Network Access Required", systemImage: "wifi.exclamationmark")
+                                .font(.headline)
+                            Text("Mouse needs permission to find servers on your network.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Button("Open Settings") {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .padding(.top, 4)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
                 // Discovered servers section
                 Section {
                     if connectionVM.discoveredServers.isEmpty {
