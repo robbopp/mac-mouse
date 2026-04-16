@@ -41,8 +41,9 @@ struct ServerPickerView: View {
                 // Manual entry section
                 Section {
                     TextField("IP Address", text: $manualHost)
-                        .keyboardType(.decimalPad)
+                        .keyboardType(.numbersAndPunctuation)
                         .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
                     TextField("Port", text: $manualPort)
                         .keyboardType(.numberPad)
                     Button("Connect") {
