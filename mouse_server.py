@@ -29,7 +29,7 @@ except ImportError:
 
 PORT = 5050
 SERVICE_NAME = "Mouse Server"
-SERVICE_TYPE = "_mouse._udp."
+SERVICE_TYPE = "_mouse._udp"   # no trailing dot — dns-sd adds it
 
 
 # ── Mouse control ────────────────────────────────────────────────────────────
@@ -68,8 +68,7 @@ def right_click():
 
 
 def scroll(dx, dy):
-    # Positive wheel1 = scroll up; negate dy so finger-down scrolls content down
-    # (matches macOS natural scroll default)
+    # Positive wheel1 = scroll up. Negate dy so finger-down scrolls content down.
     e = Quartz.CGEventCreateScrollWheelEvent(
         None, Quartz.kCGScrollEventUnitPixel,
         2, int(-dy), int(-dx)
@@ -80,19 +79,32 @@ def scroll(dx, dy):
 # ── Bonjour advertisement ────────────────────────────────────────────────────
 
 def _run_bonjour(proc_box):
-    proc = subprocess.Popen(
-        ['dns-sd', '-R', SERVICE_NAME, SERVICE_TYPE, '.', str(PORT)],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    )
+    cmd = ['dns-sd', '-R', SERVICE_NAME, SERVICE_TYPE, 'local', str(PORT)]
+    print(f"Bonjour: {' '.join(cmd)}")
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     proc_box[0] = proc
-    proc.wait()
+    for line in proc.stdout:
+        print(f"[dns-sd] {line.rstrip()}")
+
+
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return '?.?.?.?'
 
 
 # ── Main loop ────────────────────────────────────────────────────────────────
 
 def main():
+    ip = get_local_ip()
     print(f"Mouse Server — UDP port {PORT}")
-    print(f"Advertising '{SERVICE_NAME}' via Bonjour ({SERVICE_TYPE})")
+    print(f"Mac IP (for manual entry): {ip}")
+    print(f"Advertising '{SERVICE_NAME}' via Bonjour")
     print("Ctrl+C to stop\n")
 
     proc_box = [None]
@@ -113,7 +125,7 @@ def main():
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    print("Waiting for iPhone…")
+    print("Waiting for iPhone…\n")
 
     connected_addr = None
     while True:
