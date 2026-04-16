@@ -7,6 +7,10 @@ enum MouseEvent: Encodable {
     case leftClick
     case rightClick
     case scroll(dx: Double, dy: Double)
+    case swipeLeft   // 3-finger → switch space left  (Ctrl+←)
+    case swipeRight  // 3-finger → switch space right (Ctrl+→)
+    case swipeUp     // 3-finger → Mission Control    (Ctrl+↑)
+    case swipeDown   // 3-finger → App Exposé         (Ctrl+↓)
 
     private enum CodingKeys: String, CodingKey {
         case type, dx, dy
@@ -27,6 +31,14 @@ enum MouseEvent: Encodable {
             try container.encode("scroll", forKey: .type)
             try container.encode(dx, forKey: .dx)
             try container.encode(dy, forKey: .dy)
+        case .swipeLeft:
+            try container.encode("swipeLeft", forKey: .type)
+        case .swipeRight:
+            try container.encode("swipeRight", forKey: .type)
+        case .swipeUp:
+            try container.encode("swipeUp", forKey: .type)
+        case .swipeDown:
+            try container.encode("swipeDown", forKey: .type)
         }
     }
 }

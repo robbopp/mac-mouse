@@ -76,6 +76,27 @@ def scroll(dx, dy):
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
 
 
+# Key codes for arrow keys
+_KEY_LEFT  = 0x7B
+_KEY_RIGHT = 0x7C
+_KEY_DOWN  = 0x7D
+_KEY_UP    = 0x7E
+
+def _ctrl_arrow(key_code):
+    """Post a Control+Arrow keystroke (used for space switching / Mission Control)."""
+    src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateHIDSystemState)
+    for down in (True, False):
+        e = Quartz.CGEventCreateKeyboardEvent(src, key_code, down)
+        Quartz.CGEventSetFlags(e, Quartz.kCGEventFlagMaskControl)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
+
+
+def swipe_left():  _ctrl_arrow(_KEY_LEFT)   # switch to left space
+def swipe_right(): _ctrl_arrow(_KEY_RIGHT)  # switch to right space
+def swipe_up():    _ctrl_arrow(_KEY_UP)     # Mission Control
+def swipe_down():  _ctrl_arrow(_KEY_DOWN)   # App Exposé
+
+
 # ── Bonjour advertisement ────────────────────────────────────────────────────
 
 def _run_bonjour(proc_box):
@@ -143,10 +164,14 @@ def main():
         try:
             pkt = json.loads(data.decode('utf-8'))
             t = pkt.get('type')
-            if   t == 'move':       move(pkt.get('dx', 0), pkt.get('dy', 0))
-            elif t == 'click':      left_click()
-            elif t == 'rightClick': right_click()
-            elif t == 'scroll':     scroll(pkt.get('dx', 0), pkt.get('dy', 0))
+            if   t == 'move':        move(pkt.get('dx', 0), pkt.get('dy', 0))
+            elif t == 'click':       left_click()
+            elif t == 'rightClick':  right_click()
+            elif t == 'scroll':      scroll(pkt.get('dx', 0), pkt.get('dy', 0))
+            elif t == 'swipeLeft':   swipe_left()
+            elif t == 'swipeRight':  swipe_right()
+            elif t == 'swipeUp':     swipe_up()
+            elif t == 'swipeDown':   swipe_down()
         except (json.JSONDecodeError, KeyError):
             pass
 

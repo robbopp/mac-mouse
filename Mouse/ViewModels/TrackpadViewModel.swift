@@ -62,4 +62,9 @@ final class TrackpadViewModel {
     func onRightClick() {
         networkService.send(.rightClick)
     }
+
+    func onSwipeLeft()  { networkService.send(.swipeLeft) }
+    func onSwipeRight() { networkService.send(.swipeRight) }
+    func onSwipeUp()    { networkService.send(.swipeUp) }
+    func onSwipeDown()  { networkService.send(.swipeDown) }
 }

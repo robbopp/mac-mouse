@@ -16,10 +16,14 @@ struct TrackpadView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             GestureView(
-                onMoveDelta: { dx, dy in viewModel.onMoveDelta(dx: dx, dy: dy) },
+                onMoveDelta:  { dx, dy in viewModel.onMoveDelta(dx: dx, dy: dy) },
                 onScrollDelta: { dx, dy in viewModel.onScrollDelta(dx: dx, dy: dy) },
-                onLeftClick: { viewModel.onLeftClick() },
-                onRightClick: { viewModel.onRightClick() }
+                onLeftClick:  { viewModel.onLeftClick() },
+                onRightClick: { viewModel.onRightClick() },
+                onSwipeLeft:  { viewModel.onSwipeLeft() },
+                onSwipeRight: { viewModel.onSwipeRight() },
+                onSwipeUp:    { viewModel.onSwipeUp() },
+                onSwipeDown:  { viewModel.onSwipeDown() }
             )
             .ignoresSafeArea()
 
@@ -40,6 +44,10 @@ private struct GestureView: UIViewRepresentable {
     var onScrollDelta: (Double, Double) -> Void
     var onLeftClick: () -> Void
     var onRightClick: () -> Void
+    var onSwipeLeft: () -> Void
+    var onSwipeRight: () -> Void
+    var onSwipeUp: () -> Void
+    var onSwipeDown: () -> Void
 
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
@@ -75,14 +83,31 @@ private struct GestureView: UIViewRepresentable {
         rightTap.numberOfTapsRequired = 1
         view.addGestureRecognizer(rightTap)
 
+        // 3-finger swipes → space switching / Mission Control
+        for (dir, sel) in [
+            (UISwipeGestureRecognizer.Direction.left,  #selector(Coordinator.handleSwipeLeft)),
+            (.right, #selector(Coordinator.handleSwipeRight)),
+            (.up,    #selector(Coordinator.handleSwipeUp)),
+            (.down,  #selector(Coordinator.handleSwipeDown)),
+        ] {
+            let swipe = UISwipeGestureRecognizer(target: context.coordinator, action: sel)
+            swipe.numberOfTouchesRequired = 3
+            swipe.direction = dir
+            view.addGestureRecognizer(swipe)
+        }
+
         return view
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.onMoveDelta = onMoveDelta
+        context.coordinator.onMoveDelta  = onMoveDelta
         context.coordinator.onScrollDelta = onScrollDelta
-        context.coordinator.onLeftClick = onLeftClick
+        context.coordinator.onLeftClick  = onLeftClick
         context.coordinator.onRightClick = onRightClick
+        context.coordinator.onSwipeLeft  = onSwipeLeft
+        context.coordinator.onSwipeRight = onSwipeRight
+        context.coordinator.onSwipeUp    = onSwipeUp
+        context.coordinator.onSwipeDown  = onSwipeDown
     }
 
     func makeCoordinator() -> Coordinator {
@@ -90,7 +115,11 @@ private struct GestureView: UIViewRepresentable {
             onMoveDelta: onMoveDelta,
             onScrollDelta: onScrollDelta,
             onLeftClick: onLeftClick,
-            onRightClick: onRightClick
+            onRightClick: onRightClick,
+            onSwipeLeft: onSwipeLeft,
+            onSwipeRight: onSwipeRight,
+            onSwipeUp: onSwipeUp,
+            onSwipeDown: onSwipeDown
         )
     }
 
@@ -101,6 +130,10 @@ private struct GestureView: UIViewRepresentable {
         var onScrollDelta: (Double, Double) -> Void
         var onLeftClick: () -> Void
         var onRightClick: () -> Void
+        var onSwipeLeft: () -> Void
+        var onSwipeRight: () -> Void
+        var onSwipeUp: () -> Void
+        var onSwipeDown: () -> Void
 
         private var lastLocation: CGPoint?
         private var lastTouchCount: Int = 0
@@ -109,12 +142,20 @@ private struct GestureView: UIViewRepresentable {
             onMoveDelta: @escaping (Double, Double) -> Void,
             onScrollDelta: @escaping (Double, Double) -> Void,
             onLeftClick: @escaping () -> Void,
-            onRightClick: @escaping () -> Void
+            onRightClick: @escaping () -> Void,
+            onSwipeLeft: @escaping () -> Void,
+            onSwipeRight: @escaping () -> Void,
+            onSwipeUp: @escaping () -> Void,
+            onSwipeDown: @escaping () -> Void
         ) {
-            self.onMoveDelta = onMoveDelta
+            self.onMoveDelta  = onMoveDelta
             self.onScrollDelta = onScrollDelta
-            self.onLeftClick = onLeftClick
+            self.onLeftClick  = onLeftClick
             self.onRightClick = onRightClick
+            self.onSwipeLeft  = onSwipeLeft
+            self.onSwipeRight = onSwipeRight
+            self.onSwipeUp    = onSwipeUp
+            self.onSwipeDown  = onSwipeDown
         }
 
         @objc func handlePan(_ recognizer: UIPanGestureRecognizer) {
@@ -155,12 +196,11 @@ private struct GestureView: UIViewRepresentable {
             }
         }
 
-        @objc func handleLeftTap() {
-            onLeftClick()
-        }
-
-        @objc func handleRightTap() {
-            onRightClick()
-        }
+        @objc func handleLeftTap()    { onLeftClick() }
+        @objc func handleRightTap()   { onRightClick() }
+        @objc func handleSwipeLeft()  { onSwipeLeft() }
+        @objc func handleSwipeRight() { onSwipeRight() }
+        @objc func handleSwipeUp()    { onSwipeUp() }
+        @objc func handleSwipeDown()  { onSwipeDown() }
     }
 }
