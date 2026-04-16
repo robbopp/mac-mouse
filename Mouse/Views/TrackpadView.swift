@@ -28,6 +28,16 @@ struct TrackpadView: View {
                 onDisconnect: onDisconnect
             )
         }
+        .onAppear {
+            appLockLandscape = true
+            // Rotate to landscape immediately
+            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape))
+            }
+        }
+        .onDisappear {
+            appLockLandscape = false
+        }
     }
 }
 
