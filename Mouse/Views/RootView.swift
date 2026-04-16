@@ -20,7 +20,7 @@ struct RootView: View {
     }
 }
 
-private func requestOrientation(_ mask: UIInterfaceOrientationMask) {
+func requestOrientation(_ mask: UIInterfaceOrientationMask) {
     guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
     appLockLandscape = (mask == .landscape)
     scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
