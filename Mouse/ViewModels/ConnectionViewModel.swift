@@ -64,14 +64,7 @@ final class ConnectionViewModel {
     // MARK: - Private
 
     private func attemptAutoReconnect() {
-        guard
-            let data = UserDefaults.standard.data(forKey: lastServerDefaultsKey),
-            let config = try? JSONDecoder().decode(ServerConfig.self, from: data)
-        else {
-            startDiscovery()
-            return
-        }
-        connect(to: config)
+        startDiscovery()
     }
 
     private func startDiscovery() {

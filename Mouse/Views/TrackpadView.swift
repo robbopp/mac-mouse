@@ -37,6 +37,9 @@ struct TrackpadView: View {
         }
         .onDisappear {
             appLockLandscape = false
+            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+            }
         }
     }
 }
