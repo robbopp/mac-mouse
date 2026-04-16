@@ -19,6 +19,7 @@ import subprocess
 import sys
 import signal
 import threading
+import time
 
 try:
     import Quartz
@@ -28,6 +29,7 @@ except ImportError:
     sys.exit(1)
 
 PORT = 5050
+DISCOVERY_PORT = 5051          # UDP broadcast discovery fallback
 SERVICE_NAME = "Mouse Server"
 SERVICE_TYPE = "_mouse._udp"   # no trailing dot — dns-sd adds it
 
@@ -107,6 +109,25 @@ def swipe_up():    _swipe_gesture(   0, -500)  # Mission Control
 def swipe_down():  _swipe_gesture(   0,  500)  # App Exposé
 
 
+# ── UDP broadcast discovery fallback ────────────────────────────────────────
+
+def _broadcast_loop():
+    """
+    Broadcast server presence every 2 seconds on DISCOVERY_PORT.
+    Works as a fallback when mDNS multicast is filtered by the router.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    msg = json.dumps({"type": "discover", "name": SERVICE_NAME, "port": PORT}).encode()
+    while True:
+        try:
+            sock.sendto(msg, ('255.255.255.255', DISCOVERY_PORT))
+        except Exception:
+            pass
+        time.sleep(2)
+
+
 # ── Bonjour advertisement ────────────────────────────────────────────────────
 
 def _run_bonjour(proc_box):
@@ -140,6 +161,8 @@ def main():
 
     proc_box = [None]
     threading.Thread(target=_run_bonjour, args=(proc_box,), daemon=True).start()
+    threading.Thread(target=_broadcast_loop, daemon=True).start()
+    print(f"Broadcasting on UDP port {DISCOVERY_PORT} (multicast fallback)")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

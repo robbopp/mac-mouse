@@ -17,4 +17,8 @@ struct ServerConfig: Identifiable, Hashable, Codable {
     static func manual(host: String, port: UInt16) -> ServerConfig {
         ServerConfig(id: UUID(), displayName: "\(host):\(port)", bonjourName: nil, host: host, port: port)
     }
+
+    static func broadcast(name: String, host: String, port: UInt16) -> ServerConfig {
+        ServerConfig(id: UUID(), displayName: name, bonjourName: nil, host: host, port: port)
+    }
 }
