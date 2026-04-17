@@ -14,7 +14,7 @@ struct TrackpadView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             GestureView(
                 onMoveDelta:  { dx, dy in viewModel.onMoveDelta(dx: dx, dy: dy) },
                 onScrollDelta: { dx, dy in viewModel.onScrollDelta(dx: dx, dy: dy) },
@@ -27,10 +27,14 @@ struct TrackpadView: View {
             )
             .ignoresSafeArea()
 
-            ToolbarView(
-                onRightClick: { viewModel.onRightClick() },
-                onDisconnect: onDisconnect
-            )
+            VStack {
+                FunctionKeysView(onKeyPress: { viewModel.onKeyPress(keyCode: $0) })
+                Spacer()
+                ToolbarView(
+                    onRightClick: { viewModel.onRightClick() },
+                    onDisconnect: onDisconnect
+                )
+            }
         }
         .onAppear { requestOrientation(.landscape) }
         .onDisappear { requestOrientation(.portrait) }

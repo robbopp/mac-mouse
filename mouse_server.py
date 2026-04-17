@@ -30,6 +30,14 @@ except ImportError:
     print("  pip3 install pyobjc-framework-Quartz")
     sys.exit(1)
 
+try:
+    from AppKit import NSEvent as _NSEvent
+    _HAS_APPKIT = True
+except ImportError:
+    _HAS_APPKIT = False
+    print("[warn] AppKit not available — media/volume keys won't work.")
+    print("       Fix: pip3 install pyobjc-framework-AppKit")
+
 PORT = 5050
 DISCOVERY_PORT = 5051          # UDP broadcast discovery fallback
 SERVICE_NAME = "Robert's MacBook Pro"
@@ -72,10 +80,10 @@ def right_click():
 
 
 def scroll(dx, dy):
-    # Positive wheel1 = scroll up. Negate dy so finger-down scrolls content down.
+    # Positive wheel1 = scroll up. Use raw dy (finger up → content down, traditional direction).
     e = Quartz.CGEventCreateScrollWheelEvent(
         None, Quartz.kCGScrollEventUnitPixel,
-        2, int(-dy), int(-dx)
+        2, int(dy), int(dx)
     )
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
 
@@ -159,8 +167,8 @@ def _switch_space(direction):
         _cf.CFRelease(displays)
 
 
-def swipe_left():  _switch_space(-1)   # switch to previous space
-def swipe_right(): _switch_space(+1)   # switch to next space
+def swipe_left():  _switch_space(+1)   # gesture left-to-right → space on the left
+def swipe_right(): _switch_space(-1)   # gesture right-to-left → space on the right
 _kVK_UpArrow   = 0x7E
 _kVK_DownArrow = 0x7D
 
@@ -175,6 +183,57 @@ def _post_key(keycode, flags):
 
 def swipe_up():   _post_key(_kVK_UpArrow,   Quartz.kCGEventFlagMaskControl)  # Mission Control
 def swipe_down(): _post_key(_kVK_DownArrow, Quartz.kCGEventFlagMaskControl)  # App Exposé
+
+# ── Function key handling ────────────────────────────────────────────────────
+# Media / volume keys are NX system-defined events, not regular key events.
+# Regular CGEventCreateKeyboardEvent with an F-key virtual code doesn't trigger
+# brightness/volume/playback — those require the NX event path via AppKit.
+
+# NX key type constants (from NXEventTypes.h)
+_NX_SOUND_UP   = 0
+_NX_SOUND_DOWN = 1
+_NX_MUTE       = 7
+_NX_PLAY       = 16
+_NX_NEXT       = 17
+_NX_PREVIOUS   = 18
+
+
+def _nx_key(nx_type):
+    """Post a system-defined NX media/volume key event."""
+    if not _HAS_APPKIT:
+        return
+    for is_down in (True, False):
+        # data1 encoding: high 16 bits = NX key type, low bits = down/up marker
+        data1 = (nx_type << 16) | (0x0a00 if is_down else 0x0b00)
+        ev = _NSEvent.otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2_(
+            14,     # NSSystemDefined
+            (0, 0), 0xa00 if is_down else 0,
+            0, 0, None,
+            8,      # NX_SUBTYPE_AUX_CONTROL_BUTTONS
+            data1, -1
+        )
+        if ev:
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev.CGEvent())
+
+
+# Maps iOS-side virtual keycodes → Mac action
+# F7–F12 use NX events; F1–F6 fall back to raw virtual key events
+_F_KEY_DISPATCH = {
+    0x62: lambda: _nx_key(_NX_PREVIOUS),   # F7  – Previous Track
+    0x64: lambda: _nx_key(_NX_PLAY),       # F8  – Play / Pause
+    0x65: lambda: _nx_key(_NX_NEXT),       # F9  – Next Track
+    0x6D: lambda: _nx_key(_NX_MUTE),       # F10 – Mute
+    0x67: lambda: _nx_key(_NX_SOUND_DOWN), # F11 – Volume Down
+    0x6F: lambda: _nx_key(_NX_SOUND_UP),   # F12 – Volume Up
+}
+
+
+def key_press(keycode):
+    action = _F_KEY_DISPATCH.get(keycode)
+    if action:
+        action()
+    else:
+        _post_key(keycode, 0)  # F1–F6 as raw virtual key events
 
 
 # ── UDP broadcast discovery fallback ────────────────────────────────────────
@@ -273,6 +332,7 @@ def main():
             elif t == 'swipeRight':  swipe_right()
             elif t == 'swipeUp':     swipe_up()
             elif t == 'swipeDown':   swipe_down()
+            elif t == 'keyPress':    key_press(pkt.get('keyCode', 0))
         except (json.JSONDecodeError, KeyError):
             pass
 

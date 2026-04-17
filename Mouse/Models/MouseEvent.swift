@@ -11,9 +11,10 @@ enum MouseEvent: Encodable {
     case swipeRight  // 3-finger → switch space right (Ctrl+→)
     case swipeUp     // 3-finger → Mission Control    (Ctrl+↑)
     case swipeDown   // 3-finger → App Exposé         (Ctrl+↓)
+    case keyPress(keyCode: Int)  // Mac virtual key code (F1–F12)
 
     private enum CodingKeys: String, CodingKey {
-        case type, dx, dy
+        case type, dx, dy, keyCode
     }
 
     func encode(to encoder: Encoder) throws {
@@ -39,6 +40,9 @@ enum MouseEvent: Encodable {
             try container.encode("swipeUp", forKey: .type)
         case .swipeDown:
             try container.encode("swipeDown", forKey: .type)
+        case .keyPress(let keyCode):
+            try container.encode("keyPress", forKey: .type)
+            try container.encode(keyCode, forKey: .keyCode)
         }
     }
 }

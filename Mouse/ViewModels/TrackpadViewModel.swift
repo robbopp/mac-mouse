@@ -67,4 +67,6 @@ final class TrackpadViewModel {
     func onSwipeRight() { networkService.send(.swipeRight) }
     func onSwipeUp()    { networkService.send(.swipeUp) }
     func onSwipeDown()  { networkService.send(.swipeDown) }
+
+    func onKeyPress(keyCode: Int) { networkService.send(.keyPress(keyCode: keyCode)) }
 }
